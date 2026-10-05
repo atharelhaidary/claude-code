@@ -31,6 +31,8 @@ class MaintenanceRequest extends Model
     {
         return [
             'scheduled_at' => 'datetime',
+            'completed_at' => 'datetime',
+
         ];
     }
 

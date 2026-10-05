@@ -18,7 +18,7 @@ class MaintenanceRequestResource extends JsonResource
             'status' => $this->status,
             'priority' => $this->priority,
             'scheduled_at' => $this->scheduled_at?->format('Y-m-d H:i'),
-            'completed_at' => $this->completed_at,
+            'completed_at' => $this->completed_at?->utc()->format('Y-m-d\TH:i:s\Z'),        
             'customer' => [
                 'id' => $this->customer->id,
                 'name' => $this->customer->name,
