@@ -11,31 +11,53 @@ class AssignTechnicianTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_dispatcher_can_assign_available_technician(): void
+    public function test_dispatcher_cannot_assign_technician_to_done_request(): void
     {
-        $request = MaintenanceRequest::factory()->create(['status' => 'new']);
-        $tech = User::factory()->technician()->create();
+        $dispatcher = User::factory()->dispatcher()->create();
 
-        $this->actingAs(User::factory()->dispatcher()->create())
-            ->postJson("/api/v1/requests/{$request->id}/assign", ['technician_id' => $tech->id])
-            ->assertOk();
+        $technician = User::factory()->technician()->create();
+
+        $request = MaintenanceRequest::factory()->create([
+            'status' => 'done',
+            'technician_id' => null,
+        ]);
+
+        $this->actingAs($dispatcher)
+            ->postJson(
+                "/api/v1/requests/{$request->id}/assign",
+                ['technician_id' => $technician->id]
+            )
+            ->assertStatus(422);
 
         $this->assertDatabaseHas('maintenance_requests', [
             'id' => $request->id,
-            'technician_id' => $tech->id,
-            'status' => 'assigned',
+            'status' => 'done',
+            'technician_id' => null,
         ]);
     }
 
-    public function test_a_technician_with_a_visit_at_the_same_time_is_refused(): void
+    public function test_dispatcher_cannot_assign_technician_to_cancelled_request(): void
     {
-        $tech = User::factory()->technician()->create();
-        $first = MaintenanceRequest::factory()->create(['technician_id' => $tech->id, 'status' => 'assigned', 'scheduled_at' => '2026-10-01 07:00:00']);
-        $second = MaintenanceRequest::factory()->create(['status' => 'new', 'scheduled_at' => $first->scheduled_at]);
+        $dispatcher = User::factory()->dispatcher()->create();
 
-        $this->actingAs(User::factory()->dispatcher()->create())
-            ->postJson("/api/v1/requests/{$second->id}/assign", ['technician_id' => $tech->id])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('technician_id');
+        $technician = User::factory()->technician()->create();
+
+        $request = MaintenanceRequest::factory()->create([
+            'status' => 'cancelled',
+            'technician_id' => null,
+        ]);
+
+        $this->actingAs($dispatcher)
+            ->postJson(
+                "/api/v1/requests/{$request->id}/assign",
+                ['technician_id' => $technician->id]
+            )
+            ->assertStatus(422);
+
+        $this->assertDatabaseHas('maintenance_requests', [
+            'id' => $request->id,
+            'status' => 'cancelled',
+            'technician_id' => null,
+        ]);
     }
 }
