@@ -25,9 +25,14 @@ class AssignTechnicianTest extends TestCase
         $this->actingAs($dispatcher)
             ->postJson(
                 "/api/v1/requests/{$request->id}/assign",
-                ['technician_id' => $technician->id]
+                [
+                    'technician_id' => $technician->id,
+                ]
             )
-            ->assertStatus(422);
+            ->assertStatus(422)
+            ->assertJsonValidationErrors([
+                'maintenanceRequest',
+            ]);
 
         $this->assertDatabaseHas('maintenance_requests', [
             'id' => $request->id,
@@ -50,9 +55,14 @@ class AssignTechnicianTest extends TestCase
         $this->actingAs($dispatcher)
             ->postJson(
                 "/api/v1/requests/{$request->id}/assign",
-                ['technician_id' => $technician->id]
+                [
+                    'technician_id' => $technician->id,
+                ]
             )
-            ->assertStatus(422);
+            ->assertStatus(422)
+            ->assertJsonValidationErrors([
+                'maintenanceRequest',
+            ]);
 
         $this->assertDatabaseHas('maintenance_requests', [
             'id' => $request->id,
@@ -61,3 +71,4 @@ class AssignTechnicianTest extends TestCase
         ]);
     }
 }
+

@@ -33,9 +33,32 @@ class RequestStatusTest extends TestCase
             ->assertJsonPath('data.status', 'done');
 
         // Clients parse this as an ISO 8601 timestamp.
+        // $this->assertMatchesRegularExpression(
+        //     '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/',
+        //     (string) $response->json('data.completed_at'),
+        // );
         $this->assertMatchesRegularExpression(
-            '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/',
+            '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/',
             (string) $response->json('data.completed_at'),
         );
     }
+    public function test_completed_at_is_null_when_request_is_not_done(): void
+   {
+    $technician = User::factory()->technician()->create();
+
+    $request = MaintenanceRequest::factory()->create([
+        'technician_id' => $technician->id,
+        'status' => 'in_progress',
+        'completed_at' => null,
+    ]);
+
+    $this->actingAs($technician)
+        ->patchJson(
+            "/api/v1/requests/{$request->id}/status",
+            ['status' => 'in_progress']
+        )
+        ->assertOk()
+        ->assertJsonPath('data.status', 'in_progress')
+        ->assertJsonPath('data.completed_at', null);
+  }
 }
