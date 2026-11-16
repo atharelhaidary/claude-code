@@ -1,0 +1,24 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies / build output
+vendor/
+node_modules/
+public/build/
+public/hot
+
+# Runtime data
+storage/
+bootstrap/cache/
+database/*.sqlite
+database/*.sqlite-journal
+
+# Generated / noisy
+composer.lock
+package-lock.json
+.phpunit.result.cache
+*.log
+.idea/
+.vscode/

@@ -1,0 +1,686 @@
+openapi: 3.0.3
+info:
+  title: Maintenance Requests API
+  version: 1.0.0
+  description: |
+    OpenAPI contract for the Laravel maintenance-request training repository.
+    All paths are under /api/v1. Authentication uses Laravel Sanctum personal
+    access tokens. Dates submitted as scheduled_at are local Asia/Riyadh wall
+    time in `YYYY-MM-DD HH:mm`; timestamps such as completed_at and history
+    created_at are UTC ISO 8601.
+
+    Contract alignment notes: GET /requests is specified with the same
+    pagination envelope as GET /customers, but the current controller uses
+    get() and returns an unpaginated collection. The status-history resource
+    and GET status-history endpoint are proposed with the required new table;
+    they are not present in the uploaded routes/migrations yet. The status
+    reason field is also part of the target audit contract and requires code
+    changes. See docs/ERD.md and docs/adr/ADR-001.md.
+  contact:
+    name: Maintenance API maintainers
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local Laravel development server
+tags:
+  - name: Authentication
+  - name: Requests
+  - name: Customers
+  - name: Reports
+  - name: Status history
+paths:
+  /auth/login:
+    post:
+      tags: [Authentication]
+      operationId: login
+      summary: Exchange credentials for a Sanctum token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginInput'
+            example:
+              email: dispatcher@example.com
+              password: password
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /requests:
+    get:
+      tags: [Requests]
+      operationId: listRequests
+      summary: List maintenance requests visible to the authenticated user
+      description: Technicians see only requests assigned to them. Admins and dispatchers see all requests.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/RequestStatus'
+      responses:
+        '200':
+          description: Paginated request collection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedRequests'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      tags: [Requests]
+      operationId: createRequest
+      summary: Create a maintenance request
+      description: Admin and dispatcher only. Status is initialized to new; callers cannot set status or technician_id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRequestInput'
+      responses:
+        '201':
+          description: Request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /requests/{maintenanceRequest}:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    get:
+      tags: [Requests]
+      operationId: getRequest
+      summary: Get a maintenance request
+      description: Admins and dispatchers may view any request; technicians may view only requests assigned to them.
+      responses:
+        '200':
+          description: Request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /requests/{maintenanceRequest}/assign:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    post:
+      tags: [Requests]
+      operationId: assignTechnician
+      summary: Assign a technician to a request
+      description: Admin and dispatcher only. Rejects done/cancelled requests, non-technician users, and technicians already assigned at the same scheduled_at.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignTechnicianInput'
+      responses:
+        '200':
+          description: Technician assigned and request status set to assigned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /requests/{maintenanceRequest}/status:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    patch:
+      tags: [Requests]
+      operationId: changeRequestStatus
+      summary: Change request status
+      description: Admins and dispatchers may change any request status; only the assigned technician may change their own request. Transition rules are enforced by the target contract; done and cancelled are terminal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeStatusInput'
+      responses:
+        '200':
+          description: Status changed; a history event is recorded atomically
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RequestResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /requests/{maintenanceRequest}/report:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    post:
+      tags: [Reports]
+      operationId: createRequestReport
+      summary: Submit the report for a maintenance request
+      description: Only the technician assigned to this request may submit its report. One report is allowed per request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportInput'
+      responses:
+        '201':
+          description: Report created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /requests/{maintenanceRequest}/status-history:
+    parameters:
+      - $ref: '#/components/parameters/RequestId'
+    get:
+      tags: [Status history]
+      operationId: listRequestStatusHistory
+      summary: List the audit trail for a request
+      description: Proposed endpoint backed by request_status_histories; visible to the same users allowed to view the parent request.
+      x-proposed: true
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Paginated status history, oldest first
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedStatusHistory'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /customers:
+    get:
+      tags: [Customers]
+      operationId: listCustomers
+      summary: List customers
+      description: Admin and dispatcher only.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Paginated customers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedCustomers'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Customers]
+      operationId: createCustomer
+      summary: Create a customer
+      description: Admin and dispatcher only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCustomerInput'
+      responses:
+        '201':
+          description: Customer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomerResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+components:
+  securitySchemes:
+    sanctumBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: personal-access-token
+  parameters:
+    RequestId:
+      name: maintenanceRequest
+      in: path
+      required: true
+      description: Numeric maintenance request ID
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    Page:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PerPage:
+      name: per_page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+  schemas:
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    LoginResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: Plain-text Sanctum token; store securely and send as a Bearer token.
+        user:
+          $ref: '#/components/schemas/AuthUser'
+    AuthUser:
+      type: object
+      required: [id, name, role]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        role:
+          $ref: '#/components/schemas/UserRole'
+    UserRole:
+      type: string
+      enum: [admin, dispatcher, technician]
+    RequestStatus:
+      type: string
+      enum: [new, assigned, in_progress, done, cancelled]
+    Priority:
+      type: string
+      enum: [low, medium, high]
+    CreateRequestInput:
+      type: object
+      required: [customer_id, title, description, priority, scheduled_at]
+      properties:
+        customer_id:
+          type: integer
+          format: int64
+          minimum: 1
+        title:
+          type: string
+          maxLength: 190
+        description:
+          type: string
+          maxLength: 5000
+        priority:
+          $ref: '#/components/schemas/Priority'
+        scheduled_at:
+          type: string
+          description: Local Asia/Riyadh date and time, converted to UTC for storage.
+          pattern: '^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}$'
+          example: '2026-10-01 10:00'
+    AssignTechnicianInput:
+      type: object
+      required: [technician_id]
+      properties:
+        technician_id:
+          type: integer
+          format: int64
+          minimum: 1
+    ChangeStatusInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [in_progress, done, cancelled]
+        reason:
+          type: string
+          nullable: true
+          maxLength: 2000
+          description: Optional audit explanation; target implementation persists this in request_status_histories.
+    CreateCustomerInput:
+      type: object
+      required: [name, phone, address]
+      properties:
+        name:
+          type: string
+          maxLength: 190
+        phone:
+          type: string
+          maxLength: 30
+        address:
+          type: string
+          maxLength: 500
+    CreateReportInput:
+      type: object
+      required: [notes]
+      properties:
+        notes:
+          type: string
+          maxLength: 5000
+        parts_used:
+          type: string
+          nullable: true
+          maxLength: 2000
+    Customer:
+      type: object
+      required: [id, name, phone, address]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        phone:
+          type: string
+        address:
+          type: string
+    TechnicianSummary:
+      type: object
+      nullable: true
+      required: [id, name]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+    CustomerSummary:
+      type: object
+      required: [id, name, phone]
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        phone:
+          type: string
+    MaintenanceRequest:
+      type: object
+      required: [id, title, description, status, priority, scheduled_at, completed_at, customer, technician]
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/RequestStatus'
+        priority:
+          allOf:
+            - $ref: '#/components/schemas/Priority'
+          nullable: true
+        scheduled_at:
+          type: string
+          description: Local time string in Y-m-d H:i format as emitted by the current Resource.
+          example: '2026-10-01 10:00'
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: '2026-10-01T07:00:00Z'
+        customer:
+          $ref: '#/components/schemas/CustomerSummary'
+        technician:
+          $ref: '#/components/schemas/TechnicianSummary'
+    RequestReport:
+      type: object
+      required: [id, maintenance_request_id, notes, parts_used, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        maintenance_request_id:
+          type: integer
+          format: int64
+        notes:
+          type: string
+        parts_used:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    RequestStatusHistory:
+      type: object
+      required: [id, maintenance_request_id, old_status, new_status, reason, changed_by, created_at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        maintenance_request_id:
+          type: integer
+          format: int64
+        old_status:
+          allOf:
+            - $ref: '#/components/schemas/RequestStatus'
+          nullable: true
+          description: Null only for the initial NULL to new event.
+        new_status:
+          $ref: '#/components/schemas/RequestStatus'
+        reason:
+          type: string
+          nullable: true
+        changed_by:
+          type: integer
+          format: int64
+          nullable: true
+          description: Null if the actor account was deleted after the event.
+        created_at:
+          type: string
+          format: date-time
+    RequestResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/MaintenanceRequest'
+    CustomerResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/Customer'
+    ReportResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          $ref: '#/components/schemas/RequestReport'
+    PaginatedRequests:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/MaintenanceRequest'
+    PaginatedCustomers:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Customer'
+    PaginatedStatusHistory:
+      allOf:
+        - $ref: '#/components/schemas/PaginationEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/RequestStatusHistory'
+    PaginationEnvelope:
+      type: object
+      required: [data, links, meta]
+      properties:
+        data:
+          type: array
+          items: {}
+        links:
+          type: object
+          required: [first, last, prev, next]
+          properties:
+            first:
+              type: string
+              format: uri-reference
+              nullable: true
+            last:
+              type: string
+              format: uri-reference
+              nullable: true
+            prev:
+              type: string
+              format: uri-reference
+              nullable: true
+            next:
+              type: string
+              format: uri-reference
+              nullable: true
+        meta:
+          type: object
+          required: [current_page, from, last_page, path, per_page, to, total]
+          properties:
+            current_page:
+              type: integer
+            from:
+              type: integer
+              nullable: true
+            last_page:
+              type: integer
+            path:
+              type: string
+              format: uri-reference
+            per_page:
+              type: integer
+            to:
+              type: integer
+              nullable: true
+            total:
+              type: integer
+    ApiError:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+    ErrorResponse:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    ValidationErrorResponse:
+      type: object
+      required: [message, errors]
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+  responses:
+    Unauthenticated:
+      description: Missing or invalid Bearer token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated user lacks permission for this action or resource
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Requested resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Conflict with current resource state or a unique constraint
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationError:
+      description: Invalid input or invalid state transition; Laravel validation response
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationErrorResponse'
+security:
+  - sanctumBearer: []
